@@ -51,6 +51,15 @@ async function waitDone(page, nLeft, nRight){
 
 const cardTexts = page => page.$$eval('#summary .pair-card', els => els.map(e => e.textContent));
 
+async function typeSearch(page, term){
+  await page.fill('#search', term);
+  await page.waitForTimeout(260); // debounce (150ms) + render
+}
+// rows visible in the result blocks that do NOT contain the term = leaks
+const leakCount = (page, term) => page.$$eval('#results .block tbody tr:not(.more)',
+  (trs, t) => trs.filter(tr => !tr.textContent.toLowerCase().includes(t)).length, term);
+const shownRows = page => page.$$eval('#results .block tbody tr:not(.more)', trs => trs.length);
+
 async function testSynthetic(browser){
   console.log('\n== synthetic fixtures ==');
   const fx = f => join(root, 'fixtures', f);
@@ -105,6 +114,22 @@ async function testSynthetic(browser){
   check(unit.canon, 'canonCell normalizes numbers, trims text');
   check(unit.dp, 'seqDiffDP basic LCS diff');
 
+  // --- row search / filter ---
+  await typeSearch(page, 'washer'); // present only in pair A (a_before/a_after)
+  const sBlocks = await page.$$eval('#results .pair-block .names', els => els.map(e => e.textContent));
+  check(sBlocks.length === 1 && sBlocks[0].includes('a_before.csv'), 'search "washer" shows only pair A: ' + JSON.stringify(sBlocks));
+  check(await leakCount(page, 'washer') === 0, 'no non-matching rows leak through search');
+  check(await shownRows(page) >= 1, 'search shows the matching rows');
+  check(await page.$$eval('#results .pair-block tbody tr.r-same', trs => trs.length) >= 1,
+    'search reveals unchanged matching rows (overrides show-only-differences)');
+  check(/\d+ rows? match/.test(await page.$eval('#results .pair-block .cnt', e => e.textContent)),
+    'count label reads "N rows match"');
+  await typeSearch(page, 'no-such-value-xyz');
+  check((await page.$$('#results .block')).length === 0 && /No rows contain/.test(await page.$eval('#results', e => e.textContent)),
+    'search with no matches shows the empty message');
+  await typeSearch(page, ''); // clear
+  check((await page.$$('#results .pair-block')).length === 5, 'clearing search restores all 5 pair blocks');
+
   await page.screenshot({ path: join(shotsDir, 'e2e-synthetic.png'), fullPage: true });
   await page.close();
 }
@@ -137,8 +162,20 @@ async function testSamples(browser){
   check(unmatched.length === 1 && unmatched[0].includes('engTransferHistory'), 'engTransferHistory reported as added file');
   const headerOk = await page.$$eval('table.diff thead th', ths => !ths.some(th => /ï»¿|﻿/.test(th.textContent)));
   check(headerOk, 'no BOM residue in headers');
-
   await page.screenshot({ path: join(shotsDir, 'e2e-samples.png'), fullPage: true });
+
+  // --- row search on a real part number ---
+  const part = '182-71-1';
+  await typeSearch(page, part);
+  const nShown = await shownRows(page);
+  check(nShown >= 1, 'search "' + part + '" shows matching rows (' + nShown + ')');
+  check(await leakCount(page, part) === 0, 'every visible sample row contains "' + part + '"');
+  console.log('  "' + part + '" matched ' + nShown + ' rows across ' + (await page.$$('#results .block')).length + ' comparisons');
+  await page.screenshot({ path: join(shotsDir, 'e2e-samples-search.png'), fullPage: true });
+  await typeSearch(page, '');
+  check((await page.$$eval('#results .pair-block .cnt', els => els.some(e => /differing rows|identical|column changes/.test(e.textContent)))),
+    'clearing search restores the diff view');
+
   await page.close();
 }
 
