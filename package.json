@@ -1,0 +1,12 @@
+{
+  "name": "diffchecker",
+  "private": true,
+  "description": "Compare CSV/Excel files before vs after, entirely in the browser",
+  "scripts": {
+    "fixtures": "node scripts/make-fixtures.mjs",
+    "e2e": "node scripts/make-fixtures.mjs && node scripts/e2e.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}

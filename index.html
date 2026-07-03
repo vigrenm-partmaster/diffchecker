@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diff Checker — CSV &amp; Excel Before/After Comparison</title>
+<style>
+  :root{
+    --add:#d9f2d9; --add-soft:#e9f7e9; --add-strong:#b7e6b7;
+    --rem:#f7dada; --rem-soft:#fbeaea; --rem-strong:#efb9b9;
+    --chg:#d6e6f7; --chg-soft:#eef4fb;
+    --ink:#1f2430; --muted:#6b7280; --line:#e3e5ea; --bg:#f5f6f8; --card:#ffffff;
+    --accent:#2f6fce;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+  header.app{position:sticky;top:0;z-index:30;background:var(--card);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:16px;padding:10px 18px;flex-wrap:wrap}
+  header.app h1{font-size:16px;margin:0;font-weight:650}
+  header.app .sub{color:var(--muted);font-size:12px}
+  .toolbar{display:flex;align-items:center;gap:14px;margin-left:auto;flex-wrap:wrap}
+  .toolbar label{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+  .toolbar select{padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:#fff}
+  .btn{border:1px solid var(--line);background:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font:inherit}
+  .btn:hover{border-color:#c8ccd4;background:#fafafa}
+  main{max-width:none;padding:14px 18px 60px}
+  .banner{background:#fff4e5;border:1px solid #f0c987;border-radius:8px;padding:10px 14px;margin-bottom:12px}
+  #status{color:var(--muted);font-size:12px;min-height:16px;margin:4px 2px 10px}
+
+  /* upload panes */
+  .panes{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+  .pane{background:var(--card);border:1.5px dashed var(--line);border-radius:10px;padding:14px;min-height:110px;transition:border-color .15s, background .15s}
+  .pane.drag{border-color:var(--accent);background:#f0f6ff}
+  .pane h2{margin:0 0 2px;font-size:14px}
+  .pane .hint{color:var(--muted);font-size:12px;margin-bottom:8px}
+  .pane input[type=file]{font-size:12px;max-width:100%}
+  .pane.left h2::before{content:"⬅ ";}
+  .pane.right h2::before{content:"➡ ";}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:#eef1f5;border:1px solid var(--line);border-radius:14px;padding:2px 8px 2px 10px;font-size:12px;max-width:100%}
+  .chip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:340px}
+  .chip .meta{color:var(--muted)}
+  .chip button{border:0;background:transparent;cursor:pointer;font-size:13px;color:#8a8f98;padding:0 2px}
+  .chip button:hover{color:#d33}
+  .chip.err{background:#fdecec;border-color:#efb9b9}
+
+  /* summary */
+  #summary{margin-bottom:14px}
+  #summary .totals{font-size:13px;color:var(--muted);margin:0 2px 8px}
+  .cards{display:flex;flex-wrap:wrap;gap:10px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;min-width:230px;max-width:420px;box-shadow:0 1px 2px rgba(15,20,40,.04)}
+  .card:hover{border-color:#c4cbd6}
+  .card .names{font-weight:600;font-size:13px;overflow-wrap:anywhere}
+  .card .names .arrow{color:var(--muted);font-weight:400}
+  .card .key{color:var(--muted);font-size:11.5px;margin-top:2px}
+  .card .badges{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+  .badge{font-size:11.5px;padding:1px 8px;border-radius:10px;border:1px solid transparent}
+  .badge.add{background:var(--add);border-color:var(--add-strong)}
+  .badge.rem{background:var(--rem);border-color:var(--rem-strong)}
+  .badge.chg{background:var(--chg);border-color:#b9d2ef}
+  .badge.same{background:#eef1f5;border-color:var(--line);color:var(--muted)}
+  .badge.conf{background:#fff;border-color:var(--line);color:var(--muted)}
+  .card.un-add{border-left:5px solid #7cc97c}
+  .card.un-rem{border-left:5px solid #e39a9a}
+
+  /* diff blocks */
+  .block{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:18px;overflow:hidden}
+  .block>header{display:flex;align-items:center;gap:12px;padding:9px 12px;border-bottom:1px solid var(--line);background:#fafbfc;flex-wrap:wrap}
+  .block>header .names{font-weight:650;font-size:13.5px;overflow-wrap:anywhere}
+  .block>header .names .arrow{color:var(--muted);font-weight:400}
+  .block>header .key{color:var(--muted);font-size:12px}
+  .block>header .nav{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .block>header .nav .cnt{color:var(--muted);font-size:12px}
+  .tablewrap{max-height:70vh;overflow:auto}
+  table.diff{border-collapse:separate;border-spacing:0;font-size:12.5px;width:max-content;min-width:100%}
+  table.diff th,table.diff td{border-bottom:1px solid #eef0f3;border-right:1px solid #f2f3f6;padding:3px 8px;text-align:left;vertical-align:top}
+  table.diff td{white-space:nowrap;max-width:300px;overflow:hidden;text-overflow:ellipsis}
+  table.diff thead th{position:sticky;top:0;background:#f3f4f7;z-index:5;font-weight:600;white-space:nowrap;border-bottom:1px solid var(--line)}
+  table.diff thead th.remcol{background:var(--rem)}
+  table.diff thead th.addcol{background:var(--add)}
+  td.rn,th.rn{color:#9aa0aa;font-size:11px;text-align:right;min-width:38px;background:#fafbfc;position:sticky;z-index:2}
+  th.rn{z-index:6}
+  table.diff td.rn:first-child,table.diff th.rn:first-child{left:0;z-index:4}
+  table.diff th.rn:first-child{z-index:7}
+  td.gut,th.gut{padding:0;min-width:12px;width:12px;background:repeating-linear-gradient(45deg,#f0f1f4 0 5px,#e6e8ec 5px 10px);border-right:1px solid var(--line);border-left:1px solid var(--line)}
+  td.spacer{background:repeating-linear-gradient(45deg,#f6f7f9 0 6px,#eef0f3 6px 12px)}
+  tr.r-removed td.L:not(.spacer){background:var(--rem)}
+  tr.r-added td.R:not(.spacer){background:var(--add)}
+  td.chg{background:var(--chg)}
+  td.chgL{background:var(--chg-soft)}
+  td.addcol{background:var(--add-soft)}
+  td.remcol{background:var(--rem-soft)}
+  tr.r-added td.addcol{background:var(--add)}
+  td.emptyv{color:#9aa0aa;font-style:italic}
+  tr.gap td{background:#f6f7f9;color:var(--muted);text-align:center;cursor:pointer;font-size:12px;padding:4px}
+  tr.gap td:hover{background:#eef1f5}
+  tr.more td{background:#f0f6ff;color:var(--accent);text-align:center;cursor:pointer;font-size:12px;padding:5px}
+  tr.flash td{outline:2px solid var(--accent);outline-offset:-2px}
+  .block .note{padding:10px 14px;color:var(--muted);font-size:13px}
+  .legend{display:flex;gap:14px;align-items:center;font-size:12px;color:var(--muted);margin:2px 2px 10px;flex-wrap:wrap}
+  .legend .sw{display:inline-block;width:14px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.08);vertical-align:-1px;margin-right:4px}
+  footer.app{color:var(--muted);font-size:12px;text-align:center;padding:18px}
+  .empty{color:var(--muted);text-align:center;padding:30px 10px;font-size:13.5px}
+</style>
+</head>
+<body>
+<header class="app">
+  <div>
+    <h1>Diff Checker</h1>
+    <div class="sub">Compare CSV / Excel files — before vs after</div>
+  </div>
+  <div class="toolbar">
+    <label><input type="checkbox" id="onlydiff" checked> Show only differences</label>
+    <label>First row is header
+      <select id="headermode">
+        <option value="auto" selected>Auto</option>
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
+      </select>
+    </label>
+    <button class="btn" id="reset">Reset</button>
+  </div>
+</header>
+
+<main>
+  <div id="banner" class="banner" hidden></div>
+
+  <div class="panes">
+    <div class="pane left" id="pane-left">
+      <h2>Before</h2>
+      <div class="hint">Drop CSV / Excel files here, or pick them — one or many.</div>
+      <input type="file" id="input-left" multiple accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsm">
+      <div class="chips" id="chips-left"></div>
+    </div>
+    <div class="pane right" id="pane-right">
+      <h2>After</h2>
+      <div class="hint">Drop CSV / Excel files here, or pick them — one or many.</div>
+      <input type="file" id="input-right" multiple accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsm">
+      <div class="chips" id="chips-right"></div>
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <section id="summary"></section>
+  <section id="results"><div class="empty">Upload files on both sides to see the comparison. Files are matched by <b>content</b>, not by name.</div></section>
+</main>
+
+<footer class="app">All processing happens locally in your browser — files are never uploaded anywhere.</footer>
+
+<script src="vendor/papaparse.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script>
+(function(){
+'use strict';
+const DC = window.DC = {};
+
+/* ---------------- utilities ---------------- */
+const $ = s => document.querySelector(s);
+const SEP = '\u0001';
+const NUM_RE = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/;
+
+function canonCell(v){
+  let s = (v == null ? '' : String(v)).trim();
+  if (s && NUM_RE.test(s)){
+    const n = Number(s);
+    if (Number.isFinite(n)) s = String(n);
+  }
+  return s;
+}
+function colLetter(i){ let s=''; i++; while(i){ i--; s=String.fromCharCode(65+i%26)+s; i=Math.floor(i/26);} return s; }
+function jaccard(a, b){
+  if (!a.size && !b.size) return 1;
+  let inter = 0;
+  const [small, big] = a.size <= b.size ? [a, b] : [b, a];
+  for (const x of small) if (big.has(x)) inter++;
+  return inter / (a.size + b.size - inter);
+}
+const raf = () => new Promise(r => requestAnimationFrame(r));
+
+/* ---------------- table building ---------------- */
+let tableSeq = 0;
+function buildTable(aoa, fileName, sheetName, headerMode){
+  let rows = aoa.filter(r => r && r.some(c => (c == null ? '' : String(c)).trim() !== ''));
+  if (!rows.length) return null;
+  let width = 0;
+  for (const r of rows) width = Math.max(width, r.length);
+  const cellStr = (r, j) => (r[j] == null ? '' : String(r[j]));
+  while (width > 1 && rows.every(r => cellStr(r, width - 1).trim() === '')) width--;
+  rows = rows.map(r => { const o = new Array(width); for (let j = 0; j < width; j++) o[j] = cellStr(r, j); return o; });
+
+  let hasHeader;
+  if (headerMode === 'yes') hasHeader = true;
+  else if (headerMode === 'no') hasHeader = false;
+  else {
+    const first = rows[0].map(c => c.trim()); // case-sensitive: real headers may differ only by case (Objstate vs ObjState)
+    const nonEmpty = first.filter(c => c !== '');
+    const dups = nonEmpty.length !== new Set(nonEmpty).size;
+    const empties = first.length - nonEmpty.length;
+    const numeric = first.filter(c => NUM_RE.test(c)).length;
+    hasHeader = !(dups || empties > width / 2 || numeric > width / 2);
+  }
+  const header = hasHeader ? rows[0].map((c, j) => c.trim() || colLetter(j)) : rows[0].map((_, j) => colLetter(j));
+  const data = hasHeader ? rows.slice(1) : rows;
+  const canon = data.map(r => r.map(canonCell));
+  const rowHashes = canon.map(r => r.join(SEP));
+  return {
+    id: 't' + (tableSeq++), fileName, sheetName: sheetName || null,
+    hasHeader, synthetic: !hasHeader,
+    header, rows: data, canon, rowHashes,
+    name: fileName + (sheetName ? ' · ' + sheetName : '')
+  };
+}
+
+/* ---------------- parsing ---------------- */
+async function parseFile(file, headerMode){
+  const name = file.name || 'file';
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  let isExcel = ['xlsx', 'xls', 'xlsm', 'xlsb'].includes(ext);
+  if (!isExcel && !['csv', 'tsv', 'txt'].includes(ext)){
+    const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+    isExcel = head[0] === 0x50 && head[1] === 0x4B; // "PK" zip container
+  }
+  const tables = [];
+  if (isExcel){
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    for (const sn of wb.SheetNames){
+      const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: '', blankrows: false });
+      const t = buildTable(aoa, name, wb.SheetNames.length > 1 ? sn : null, headerMode);
+      if (t) tables.push(t);
+    }
+  } else {
+    let text = await file.text();
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // strip BOM
+    const res = Papa.parse(text, { skipEmptyLines: 'greedy' });
+    const t = buildTable(res.data, name, null, headerMode);
+    if (t) tables.push(t);
+  }
+  return tables;
+}
+
+/* ---------------- content-based pairing ---------------- */
+function sampleHashSet(t){
+  const H = t.rowHashes, n = H.length;
+  const s = new Set();
+  if (n <= 1000){ for (const h of H) s.add(h); return s; }
+  for (let i = 0; i < 500; i++) s.add(H[i]);
+  const step = Math.max(1, Math.floor(n / 500));
+  for (let i = 0; i < n; i += step) s.add(H[i]);
+  return s;
+}
+function nameTokens(t){
+  return new Set((t.fileName + ' ' + (t.sheetName || '')).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+}
+function headerSet(t){ return new Set(t.header.map(h => h.trim().toLowerCase())); }
+function shapeSim(a, b){
+  const r = Math.min(a.rows.length, b.rows.length) / Math.max(a.rows.length, b.rows.length, 1);
+  const c = Math.min(a.header.length, b.header.length) / Math.max(a.header.length, b.header.length, 1);
+  return (r + c) / 2;
+}
+function pairScore(l, r){
+  const h = (l.synthetic && r.synthetic) ? shapeSim(l, r) : jaccard(headerSet(l), headerSet(r));
+  const c = jaccard(sampleHashSet(l), sampleHashSet(r));
+  const s = shapeSim(l, r);
+  const n = jaccard(nameTokens(l), nameTokens(r));
+  return 0.4 * h + 0.4 * c + 0.1 * s + 0.1 * n;
+}
+function pairTables(leftTables, rightTables){
+  const cand = [];
+  for (const l of leftTables) for (const r of rightTables) cand.push({ l, r, score: pairScore(l, r) });
+  cand.sort((a, b) => b.score - a.score);
+  const usedL = new Set(), usedR = new Set(), pairs = [];
+  for (const c of cand){
+    if (c.score < 0.25) break;
+    if (usedL.has(c.l.id) || usedR.has(c.r.id)) continue;
+    usedL.add(c.l.id); usedR.add(c.r.id);
+    pairs.push({ left: c.l, right: c.r, score: c.score });
+  }
+  return {
+    pairs,
+    leftOnly: leftTables.filter(t => !usedL.has(t.id)),
+    rightOnly: rightTables.filter(t => !usedR.has(t.id))
+  };
+}
+
+/* ---------------- generic small-sequence diff (LCS DP) ---------------- */
+function seqDiffDP(a, b){
+  const n = a.length, m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--){
+    const di = dp[i], di1 = dp[i + 1];
+    for (let j = m - 1; j >= 0; j--)
+      di[j] = a[i] === b[j] ? di1[j + 1] + 1 : Math.max(di1[j], di[j + 1]);
+  }
+  const ops = [];
+  let i = 0, j = 0;
+  while (i < n && j < m){
+    if (a[i] === b[j]) ops.push({ t: 'm', ai: i++, bi: j++ });
+    else if (dp[i + 1][j] >= dp[i][j + 1]) ops.push({ t: 'd', ai: i++ });
+    else ops.push({ t: 'i', bi: j++ });
+  }
+  while (i < n) ops.push({ t: 'd', ai: i++ });
+  while (j < m) ops.push({ t: 'i', bi: j++ });
+  return ops;
+}
+
+/* ---------------- column alignment ---------------- */
+function alignCols(lt, rt){
+  const ln = lt.header.map(h => h.trim().toLowerCase());
+  const rn = rt.header.map(h => h.trim().toLowerCase());
+  let merged = [];
+  if (lt.synthetic && rt.synthetic){
+    const k = Math.min(ln.length, rn.length);
+    for (let i = 0; i < k; i++) merged.push({ name: rt.header[i], status: 'same', leftIdx: i, rightIdx: i });
+    for (let i = k; i < ln.length; i++) merged.push({ name: lt.header[i], status: 'removed', leftIdx: i, rightIdx: null });
+    for (let i = k; i < rn.length; i++) merged.push({ name: rt.header[i], status: 'added', leftIdx: null, rightIdx: i });
+    return merged;
+  }
+  for (const op of seqDiffDP(ln, rn)){
+    if (op.t === 'm') merged.push({ name: rt.header[op.bi], status: 'same', leftIdx: op.ai, rightIdx: op.bi });
+    else if (op.t === 'd') merged.push({ name: lt.header[op.ai], status: 'removed', leftIdx: op.ai, rightIdx: null });
+    else merged.push({ name: rt.header[op.bi], status: 'added', leftIdx: null, rightIdx: op.bi });
+  }
+  // a column that merely moved shows up as removed+added with the same name — re-join it
+  for (const add of merged){
+    if (add.status !== 'added') continue;
+    const nm = add.name.trim().toLowerCase();
+    const rem = merged.find(c => c.status === 'removed' && c.name.trim().toLowerCase() === nm);
+    if (rem){ add.status = 'same'; add.leftIdx = rem.leftIdx; rem.status = 'drop'; }
+  }
+  return merged.filter(c => c.status !== 'drop');
+}
+
+/* ---------------- key detection ---------------- */
+function detectKey(lt, rt, matched){
+  const nL = lt.rows.length, nR = rt.rows.length;
+  if (!nL || !nR || !matched.length) return null;
+  const keyStrings = (t, side, cols) =>
+    t.canon.map(row => cols.map(c => row[side === 'L' ? c.leftIdx : c.rightIdx]).join(SEP));
+  const evalCand = cols => {
+    const kL = keyStrings(lt, 'L', cols), kR = keyStrings(rt, 'R', cols);
+    const sL = new Set(kL), sR = new Set(kR);
+    const uL = sL.size / nL, uR = sR.size / nR;
+    if (uL < 0.95 || uR < 0.95) return null;
+    let inter = 0;
+    for (const k of sL) if (sR.has(k)) inter++;
+    const overlap = inter / Math.min(sL.size, sR.size);
+    if (overlap < 0.5) return null;
+    return { cols, overlap, kL, kR };
+  };
+  const leftmost = cols => cols.reduce((s, c) => s + c.leftIdx, 0);
+  const pick = cands => {
+    let best = null;
+    for (const cols of cands){
+      const r = evalCand(cols);
+      if (r && (!best || r.overlap > best.overlap + 1e-9 ||
+        (Math.abs(r.overlap - best.overlap) <= 1e-9 && leftmost(r.cols) < leftmost(best.cols)))) best = r;
+    }
+    return best;
+  };
+  const singles = matched.slice(0, 20).map(c => [c]);
+  let best = pick(singles);
+  if (best) return best;
+  const pool = matched.slice(0, 10);
+  const pairsC = [];
+  for (let i = 0; i < pool.length; i++) for (let j = i + 1; j < pool.length; j++) pairsC.push([pool[i], pool[j]]);
+  best = pick(pairsC);
+  if (best) return best;
+  const pool3 = matched.slice(0, 12);
+  const triples = [];
+  for (let i = 0; i < pool3.length; i++) for (let j = i + 1; j < pool3.length; j++) for (let k = j + 1; k < pool3.length; k++)
+    triples.push([pool3[i], pool3[j], pool3[k]]);
+  return pick(triples);
+}
+
+/* ---------------- row alignment ---------------- */
+function seqAlignHashes(A, B){
+  const ops = [];
+  let s = 0;
+  while (s < A.length && s < B.length && A[s] === B[s]) s++;
+  let eA = A.length, eB = B.length;
+  while (eA > s && eB > s && A[eA - 1] === B[eB - 1]){ eA--; eB--; }
+  for (let i = 0; i < s; i++) ops.push({ t: 'm', ai: i, bi: i });
+
+  const positional = (a0, a1, b0, b1) => {
+    const k = Math.min(a1 - a0, b1 - b0);
+    for (let i = 0; i < k; i++) ops.push({ t: 'm', ai: a0 + i, bi: b0 + i });
+    for (let i = a0 + k; i < a1; i++) ops.push({ t: 'd', ai: i });
+    for (let i = b0 + k; i < b1; i++) ops.push({ t: 'i', bi: i });
+  };
+  const rec = (a0, a1, b0, b1, depth) => {
+    if (a0 >= a1){ for (let i = b0; i < b1; i++) ops.push({ t: 'i', bi: i }); return; }
+    if (b0 >= b1){ for (let i = a0; i < a1; i++) ops.push({ t: 'd', ai: i }); return; }
+    if ((a1 - a0) * (b1 - b0) <= 65536){
+      for (const op of seqDiffDP(A.slice(a0, a1), B.slice(b0, b1))){
+        if (op.t === 'm') ops.push({ t: 'm', ai: a0 + op.ai, bi: b0 + op.bi });
+        else if (op.t === 'd') ops.push({ t: 'd', ai: a0 + op.ai });
+        else ops.push({ t: 'i', bi: b0 + op.bi });
+      }
+      return;
+    }
+    if (depth > 40){ positional(a0, a1, b0, b1); return; }
+    // patience: anchors = hashes unique in both ranges
+    const cntA = new Map(), cntB = new Map(), posA = new Map(), posB = new Map();
+    for (let i = a0; i < a1; i++){ cntA.set(A[i], (cntA.get(A[i]) || 0) + 1); posA.set(A[i], i); }
+    for (let i = b0; i < b1; i++){ cntB.set(B[i], (cntB.get(B[i]) || 0) + 1); posB.set(B[i], i); }
+    const anchors = [];
+    for (let i = a0; i < a1; i++){
+      const h = A[i];
+      if (cntA.get(h) === 1 && cntB.get(h) === 1) anchors.push([i, posB.get(h)]);
+    }
+    if (!anchors.length){ positional(a0, a1, b0, b1); return; }
+    // longest increasing subsequence by B position
+    const tails = [], links = new Array(anchors.length).fill(-1), tailIdx = [];
+    for (let i = 0; i < anchors.length; i++){
+      const bp = anchors[i][1];
+      let lo = 0, hi = tails.length;
+      while (lo < hi){ const mid = (lo + hi) >> 1; if (tails[mid] < bp) lo = mid + 1; else hi = mid; }
+      tails[lo] = bp; tailIdx[lo] = i;
+      links[i] = lo > 0 ? tailIdx[lo - 1] : -1;
+    }
+    const chain = [];
+    for (let i = tailIdx[tails.length - 1]; i >= 0; i = links[i]) chain.push(anchors[i]);
+    chain.reverse();
+    let pa = a0, pb = b0;
+    for (const [ai, bi] of chain){
+      rec(pa, ai, pb, bi, depth + 1);
+      ops.push({ t: 'm', ai, bi });
+      pa = ai + 1; pb = bi + 1;
+    }
+    rec(pa, a1, pb, b1, depth + 1);
+  };
+  rec(s, eA, s, eB, 0);
+  for (let k = 0; k < A.length - eA; k++) ops.push({ t: 'm', ai: eA + k, bi: eB + k });
+  return ops;
+}
+
+function opsToEntries(ops, projL, projR){
+  return ops.map(op =>
+    op.t === 'm' ? { type: projL[op.ai] === projR[op.bi] ? 'same' : 'changed', li: op.ai, ri: op.bi } :
+    op.t === 'd' ? { type: 'removed', li: op.ai, ri: null } :
+                   { type: 'added', li: null, ri: op.bi });
+}
+
+function keyJoin(kL, kR, projL, projR){
+  const mapL = new Map(), mapR = new Map();
+  kL.forEach((k, i) => mapL.set(k, mapL.has(k) ? -1 : i));
+  kR.forEach((k, i) => mapR.set(k, mapR.has(k) ? -1 : i));
+  const pairedL = new Set();
+  const riToLi = new Array(kR.length).fill(-1);
+  for (let ri = 0; ri < kR.length; ri++){
+    if (mapR.get(kR[ri]) !== ri) continue;           // duplicate key on right
+    const li = mapL.get(kR[ri]);
+    if (li != null && li >= 0){ riToLi[ri] = li; pairedL.add(li); }
+  }
+  const unpairedL = [];
+  for (let li = 0; li < kL.length; li++) if (!pairedL.has(li)) unpairedL.push(li);
+  const entries = [];
+  let p = 0;
+  for (let ri = 0; ri < kR.length; ri++){
+    const li = riToLi[ri];
+    if (li >= 0){
+      while (p < unpairedL.length && unpairedL[p] < li) entries.push({ type: 'removed', li: unpairedL[p++], ri: null });
+      entries.push({ type: projL[li] === projR[ri] ? 'same' : 'changed', li, ri });
+    } else {
+      entries.push({ type: 'added', li: null, ri });
+    }
+  }
+  while (p < unpairedL.length) entries.push({ type: 'removed', li: unpairedL[p++], ri: null });
+  return entries;
+}
+
+function fuzzyPass(entries, simFn){
+  const out = [];
+  let i = 0;
+  while (i < entries.length){
+    const t = entries[i].type;
+    if (t !== 'removed' && t !== 'added'){ out.push(entries[i++]); continue; }
+    const rem = [], add = [];
+    let j = i;
+    while (j < entries.length && (entries[j].type === 'removed' || entries[j].type === 'added')){
+      (entries[j].type === 'removed' ? rem : add).push(entries[j]); j++;
+    }
+    let a = 0, b = 0;
+    while (a < rem.length && b < add.length){
+      if (simFn(rem[a].li, add[b].ri) >= 0.5){
+        out.push({ type: 'changed', li: rem[a].li, ri: add[b].ri, fuzzy: true }); a++; b++;
+      } else out.push(rem[a++]);
+    }
+    while (a < rem.length) out.push(rem[a++]);
+    while (b < add.length) out.push(add[b++]);
+    i = j;
+  }
+  return out;
+}
+
+/* ---------------- pair diff ---------------- */
+function diffPair(lt, rt, score){
+  const columns = alignCols(lt, rt);
+  const matched = columns.filter(c => c.status === 'same');
+  const projL = lt.canon.map(row => matched.map(c => row[c.leftIdx]).join(SEP));
+  const projR = rt.canon.map(row => matched.map(c => row[c.rightIdx]).join(SEP));
+  const key = detectKey(lt, rt, matched);
+  let entries = key
+    ? keyJoin(key.kL, key.kR, projL, projR)
+    : opsToEntries(seqAlignHashes(projL, projR), projL, projR);
+  const simFn = (li, ri) => {
+    if (!matched.length) return 0;
+    let eq = 0;
+    for (const c of matched) if (lt.canon[li][c.leftIdx] === rt.canon[ri][c.rightIdx]) eq++;
+    return eq / matched.length;
+  };
+  entries = fuzzyPass(entries, simFn);
+  const stats = {
+    rowsAdded: 0, rowsRemoved: 0, rowsChanged: 0, cellsChanged: 0,
+    colsAdded: columns.filter(c => c.status === 'added').length,
+    colsRemoved: columns.filter(c => c.status === 'removed').length
+  };
+  for (const e of entries){
+    if (e.type === 'added') stats.rowsAdded++;
+    else if (e.type === 'removed') stats.rowsRemoved++;
+    else if (e.type === 'changed'){
+      stats.rowsChanged++;
+      for (const c of matched) if (lt.canon[e.li][c.leftIdx] !== rt.canon[e.ri][c.rightIdx]) stats.cellsChanged++;
+    }
+  }
+  return {
+    left: lt, right: rt, score, columns, matched, key, entries, stats,
+    leftCols: columns.filter(c => c.leftIdx != null),
+    rightCols: columns.filter(c => c.rightIdx != null),
+    identical: !stats.rowsAdded && !stats.rowsRemoved && !stats.rowsChanged && !stats.colsAdded && !stats.colsRemoved
+  };
+}
+
+/* ---------------- state & pipeline ---------------- */
+const state = { leftFiles: [], rightFiles: [], headerMode: 'auto', onlyDiff: true, result: null, errors: [] };
+let runToken = 0;
+let running = null;
+
+function status(msg){ $('#status').textContent = msg || ''; }
+
+// Serialized: a new call cancels the in-flight run (via runToken) and waits for
+// it to wind down before parsing, so two runs never read the same File at once.
+async function process(){
+  const token = ++runToken;
+  status('Working…');
+  const prev = running;
+  const run = (async () => {
+    if (prev) await prev.catch(() => {});
+    if (token !== runToken) return;
+    await runPipeline(token);
+  })();
+  running = run;
+  await run;
+}
+
+async function runPipeline(token){
+  state.errors = [];
+  renderChips();
+  if (!state.leftFiles.length && !state.rightFiles.length){
+    state.result = null;
+    $('#summary').innerHTML = '';
+    $('#results').innerHTML = '<div class="empty">Upload files on both sides to see the comparison. Files are matched by <b>content</b>, not by name.</div>';
+    status('');
+    return;
+  }
+  status('Parsing files…');
+  await raf();
+  const sides = [[state.leftFiles, []], [state.rightFiles, []]];
+  for (const [files, tables] of sides){
+    for (const f of files){
+      try { tables.push(...await parseFile(f, state.headerMode)); }
+      catch (err){ state.errors.push(f.name + ': ' + (err.message || err)); }
+      if (token !== runToken) return;
+    }
+  }
+  const [leftTables, rightTables] = [sides[0][1], sides[1][1]];
+  status('Matching files by content…');
+  await raf();
+  const { pairs, leftOnly, rightOnly } = pairTables(leftTables, rightTables);
+  status('Computing differences…');
+  await raf();
+  const diffs = [];
+  for (const p of pairs){
+    diffs.push(diffPair(p.left, p.right, p.score));
+    if (token !== runToken) return;
+    await raf();
+  }
+  state.result = { diffs, leftOnly, rightOnly };
+  status('Rendering…');
+  await raf();
+  renderSummary();
+  renderResults();
+  status('');
+  renderChips();
+}
+
+/* ---------------- upload UI ---------------- */
+function addFiles(side, fileList){
+  const arr = side === 'left' ? state.leftFiles : state.rightFiles;
+  for (const f of fileList) arr.push(f);
+  process();
+}
+function fmtSize(n){
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1048576).toFixed(1) + ' MB';
+}
+function renderChips(){
+  for (const side of ['left', 'right']){
+    const wrap = $('#chips-' + side);
+    wrap.innerHTML = '';
+    const arr = side === 'left' ? state.leftFiles : state.rightFiles;
+    arr.forEach((f, i) => {
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = f.name; nm.title = f.name;
+      const meta = document.createElement('span'); meta.className = 'meta'; meta.textContent = fmtSize(f.size);
+      const x = document.createElement('button'); x.textContent = '✕'; x.title = 'Remove';
+      x.addEventListener('click', () => { arr.splice(i, 1); process(); });
+      chip.append(nm, meta, x);
+      wrap.appendChild(chip);
+    });
+  }
+}
+for (const side of ['left', 'right']){
+  const pane = $('#pane-' + side), input = $('#input-' + side);
+  input.addEventListener('change', () => { addFiles(side, input.files); input.value = ''; });
+  pane.addEventListener('dragover', e => { e.preventDefault(); pane.classList.add('drag'); });
+  pane.addEventListener('dragleave', () => pane.classList.remove('drag'));
+  pane.addEventListener('drop', e => {
+    e.preventDefault(); pane.classList.remove('drag');
+    if (e.dataTransfer && e.dataTransfer.files.length) addFiles(side, e.dataTransfer.files);
+  });
+}
+$('#onlydiff').addEventListener('change', e => { state.onlyDiff = e.target.checked; if (state.result) renderResults(); });
+$('#headermode').addEventListener('change', e => { state.headerMode = e.target.value; process(); });
+$('#reset').addEventListener('click', () => {
+  state.leftFiles = []; state.rightFiles = []; state.result = null;
+  process();
+});
+
+/* ---------------- summary rendering ---------------- */
+function badge(cls, text){
+  const b = document.createElement('span');
+  b.className = 'badge ' + cls; b.textContent = text;
+  return b;
+}
+function keyLabel(pd){
+  if (!pd.matched.length) return 'no shared columns';
+  return pd.key ? 'key: ' + pd.key.cols.map(c => c.name).join(' + ') : 'sequence-aligned (no key column)';
+}
+function renderSummary(){
+  const { diffs, leftOnly, rightOnly } = state.result;
+  const sum = $('#summary');
+  sum.innerHTML = '';
+  const withDiff = diffs.filter(d => !d.identical).length;
+  const totals = document.createElement('p');
+  totals.className = 'totals';
+  const parts = [diffs.length + ' pair' + (diffs.length === 1 ? '' : 's') + ' compared'];
+  parts.push(withDiff ? withDiff + ' with differences' : 'no differences');
+  if (rightOnly.length) parts.push(rightOnly.length + ' added');
+  if (leftOnly.length) parts.push(leftOnly.length + ' removed');
+  if (state.errors.length) parts.push(state.errors.length + ' errors');
+  totals.textContent = parts.join(' · ');
+  sum.appendChild(totals);
+
+  const legend = document.createElement('div');
+  legend.className = 'legend';
+  legend.innerHTML =
+    '<span><span class="sw" style="background:var(--add)"></span>added</span>' +
+    '<span><span class="sw" style="background:var(--rem)"></span>removed</span>' +
+    '<span><span class="sw" style="background:var(--chg)"></span>changed (new value)</span>';
+  sum.appendChild(legend);
+
+  const cards = document.createElement('div');
+  cards.className = 'cards';
+  diffs.forEach((pd, i) => {
+    const card = document.createElement('div');
+    card.className = 'card pair-card';
+    const names = document.createElement('div');
+    names.className = 'names';
+    names.append(pd.left.name);
+    const ar = document.createElement('span'); ar.className = 'arrow'; ar.textContent = '  →  ';
+    names.append(ar, pd.right.name);
+    const key = document.createElement('div');
+    key.className = 'key';
+    key.textContent = keyLabel(pd) + ' · match ' + Math.round(pd.score * 100) + '%';
+    const badges = document.createElement('div');
+    badges.className = 'badges';
+    const st = pd.stats;
+    if (pd.identical) badges.appendChild(badge('same', 'identical (' + pd.right.rows.length + ' rows)'));
+    else {
+      if (st.rowsAdded) badges.appendChild(badge('add', '+' + st.rowsAdded + ' rows'));
+      if (st.rowsRemoved) badges.appendChild(badge('rem', '−' + st.rowsRemoved + ' rows'));
+      if (st.rowsChanged) badges.appendChild(badge('chg', '~' + st.rowsChanged + ' rows'));
+      if (st.colsAdded) badges.appendChild(badge('add', '+' + st.colsAdded + ' cols'));
+      if (st.colsRemoved) badges.appendChild(badge('rem', '−' + st.colsRemoved + ' cols'));
+      if (st.cellsChanged) badges.appendChild(badge('chg', '~' + st.cellsChanged + ' cells'));
+    }
+    card.append(names, key, badges);
+    card.addEventListener('click', () => { const el = document.getElementById('pair-' + i); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    cards.appendChild(card);
+  });
+  rightOnly.forEach((t, i) => {
+    const card = document.createElement('div');
+    card.className = 'card un-add unmatched-card';
+    card.innerHTML = '<div class="names"></div><div class="key">no matching file on the Before side</div>';
+    card.querySelector('.names').textContent = 'Added: ' + t.name + ' (' + t.rows.length + ' rows)';
+    card.addEventListener('click', () => { const el = document.getElementById('un-r-' + i); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    cards.appendChild(card);
+  });
+  leftOnly.forEach((t, i) => {
+    const card = document.createElement('div');
+    card.className = 'card un-rem unmatched-card';
+    card.innerHTML = '<div class="names"></div><div class="key">no matching file on the After side</div>';
+    card.querySelector('.names').textContent = 'Removed: ' + t.name + ' (' + t.rows.length + ' rows)';
+    card.addEventListener('click', () => { const el = document.getElementById('un-l-' + i); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    cards.appendChild(card);
+  });
+  sum.appendChild(cards);
+  if (state.errors.length){
+    const err = document.createElement('div');
+    err.className = 'banner';
+    err.textContent = 'Some files could not be read — ' + state.errors.join(' · ');
+    sum.appendChild(err);
+  }
+}
+
+/* ---------------- diff rendering ---------------- */
+const CHUNK = 800, CAP = 6000;
+
+function buildItems(entries, onlyDiff){
+  if (!onlyDiff) return entries.map((_, i) => ({ row: i }));
+  const keep = new Array(entries.length).fill(false);
+  entries.forEach((e, i) => {
+    if (e.type !== 'same')
+      for (let k = Math.max(0, i - 2); k <= Math.min(entries.length - 1, i + 2); k++) keep[k] = true;
+  });
+  const items = [];
+  let i = 0;
+  while (i < entries.length){
+    if (keep[i]){ items.push({ row: i }); i++; }
+    else { let j = i; while (j < entries.length && !keep[j]) j++; items.push({ gap: [i, j] }); i = j; }
+  }
+  return items;
+}
+
+function cellTD(cls, text, title){
+  const td = document.createElement('td');
+  td.className = cls;
+  td.textContent = text;
+  if (title) td.title = title;
+  return td;
+}
+
+function buildTR(pd, idx){
+  const e = pd.entries[idx];
+  const tr = document.createElement('tr');
+  tr.className = 'r-' + e.type;
+  tr.dataset.i = idx;
+  const hOff = pd.left.hasHeader ? 1 : 0, hOffR = pd.right.hasHeader ? 1 : 0;
+  tr.appendChild(cellTD('rn L', e.li != null ? String(e.li + 1 + hOff) : ''));
+  for (const c of pd.leftCols){
+    if (e.li == null){ tr.appendChild(cellTD('L spacer', '')); continue; }
+    const v = pd.left.rows[e.li][c.leftIdx];
+    const td = cellTD('L', v, v);
+    if (c.status === 'removed') td.classList.add('remcol');
+    else if (e.type === 'changed' && pd.left.canon[e.li][c.leftIdx] !== pd.right.canon[e.ri][c.rightIdx]){
+      td.classList.add('chgL');
+      if (v.trim() === ''){ td.textContent = '·'; td.classList.add('emptyv'); }
+    }
+    tr.appendChild(td);
+  }
+  tr.appendChild(cellTD('gut', ''));
+  tr.appendChild(cellTD('rn R', e.ri != null ? String(e.ri + 1 + hOffR) : ''));
+  for (const c of pd.rightCols){
+    if (e.ri == null){ tr.appendChild(cellTD('R spacer', '')); continue; }
+    const v = pd.right.rows[e.ri][c.rightIdx];
+    const td = cellTD('R', v, v);
+    if (c.status === 'added') td.classList.add('addcol');
+    else if (e.type === 'changed' && pd.left.canon[e.li][c.leftIdx] !== pd.right.canon[e.ri][c.rightIdx]){
+      td.classList.add('chg');
+      if (v.trim() === ''){ td.textContent = '·'; td.classList.add('emptyv'); }
+    }
+    tr.appendChild(td);
+  }
+  return tr;
+}
+
+function totalCols(pd){ return pd.leftCols.length + pd.rightCols.length + 3; }
+
+function gapTR(pd, from, to){
+  const tr = document.createElement('tr');
+  tr.className = 'gap';
+  const td = document.createElement('td');
+  td.colSpan = totalCols(pd);
+  td.textContent = '⋯ ' + (to - from) + ' unchanged row' + (to - from === 1 ? '' : 's') + ' — click to show';
+  tr.appendChild(td);
+  tr.addEventListener('click', () => {
+    const frag = document.createDocumentFragment();
+    const limit = Math.min(to, from + 5000);
+    for (let i = from; i < limit; i++) frag.appendChild(buildTR(pd, i));
+    tr.parentNode.insertBefore(frag, tr);
+    if (limit < to){
+      const rest = gapTR(pd, limit, to);
+      tr.parentNode.insertBefore(rest, tr);
+    }
+    tr.remove();
+  });
+  return tr;
+}
+
+function renderPairBlock(pd, i){
+  const block = document.createElement('section');
+  block.className = 'block pair-block';
+  block.id = 'pair-' + i;
+  const head = document.createElement('header');
+  const names = document.createElement('span');
+  names.className = 'names';
+  names.append('Before: ' + pd.left.name);
+  const ar = document.createElement('span'); ar.className = 'arrow'; ar.textContent = '  →  ';
+  names.append(ar, 'After: ' + pd.right.name);
+  const key = document.createElement('span');
+  key.className = 'key';
+  key.textContent = keyLabel(pd);
+  head.append(names, key);
+  const nav = document.createElement('span');
+  nav.className = 'nav';
+  const cnt = document.createElement('span');
+  cnt.className = 'cnt';
+  const nDiff = pd.entries.filter(e => e.type !== 'same').length;
+  cnt.textContent = nDiff ? nDiff + ' differing rows' : (pd.identical ? 'identical' : 'column changes only');
+  nav.appendChild(cnt);
+  head.appendChild(nav);
+  block.appendChild(head);
+
+  if (pd.identical){
+    const note = document.createElement('div');
+    note.className = 'note';
+    note.textContent = 'Tables are identical (' + pd.right.rows.length + ' rows, ' + pd.rightCols.length + ' columns).';
+    block.appendChild(note);
+    if (state.onlyDiff) return block;
+  }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'tablewrap';
+  const table = document.createElement('table');
+  table.className = 'diff';
+  const thead = document.createElement('thead');
+  const hr = document.createElement('tr');
+  const thL = document.createElement('th'); thL.className = 'rn'; thL.textContent = '#'; hr.appendChild(thL);
+  for (const c of pd.leftCols){
+    const th = document.createElement('th'); th.textContent = c.name; th.title = c.name;
+    if (c.status === 'removed') th.classList.add('remcol');
+    hr.appendChild(th);
+  }
+  const g = document.createElement('th'); g.className = 'gut'; hr.appendChild(g);
+  const thR = document.createElement('th'); thR.className = 'rn'; thR.textContent = '#'; hr.appendChild(thR);
+  for (const c of pd.rightCols){
+    const th = document.createElement('th'); th.textContent = c.name; th.title = c.name;
+    if (c.status === 'added') th.classList.add('addcol');
+    hr.appendChild(th);
+  }
+  thead.appendChild(hr);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  block.appendChild(wrap);
+
+  // navigation over differing rows
+  if (nDiff){
+    let ptr = -1;
+    const mk = (txt, dir) => {
+      const b = document.createElement('button');
+      b.className = 'btn'; b.textContent = txt; b.title = (dir > 0 ? 'Next' : 'Previous') + ' difference';
+      b.addEventListener('click', () => {
+        const rows = tbody.querySelectorAll('tr.r-added,tr.r-removed,tr.r-changed');
+        if (!rows.length) return;
+        ptr = (ptr + dir + rows.length) % rows.length;
+        const tr = rows[ptr];
+        wrap.scrollTop = tr.offsetTop - wrap.clientHeight / 3;
+        tr.classList.add('flash');
+        setTimeout(() => tr.classList.remove('flash'), 900);
+      });
+      return b;
+    };
+    nav.prepend(mk('↑', -1), mk('↓', +1));
+  }
+
+  const items = buildItems(pd.entries, state.onlyDiff);
+  let cursor = 0, rendered = 0;
+  const pump = () => {
+    const frag = document.createDocumentFragment();
+    let n = 0;
+    while (cursor < items.length && n < CHUNK && rendered < CAP){
+      const it = items[cursor++];
+      if (it.gap) frag.appendChild(gapTR(pd, it.gap[0], it.gap[1]));
+      else { frag.appendChild(buildTR(pd, it.row)); rendered++; n++; }
+    }
+    tbody.appendChild(frag);
+    if (cursor < items.length){
+      if (rendered >= CAP){
+        const tr = document.createElement('tr');
+        tr.className = 'more';
+        const td = document.createElement('td');
+        td.colSpan = totalCols(pd);
+        let remaining = 0;
+        for (let k = cursor; k < items.length; k++) remaining += items[k].gap ? 0 : 1;
+        td.textContent = 'Load more rows (' + remaining + ' more below)…';
+        tr.appendChild(td);
+        tr.addEventListener('click', () => { tr.remove(); rendered = 0; requestAnimationFrame(pump); });
+        tbody.appendChild(tr);
+      } else requestAnimationFrame(pump);
+    }
+  };
+  pump();
+  return block;
+}
+
+function renderUnmatchedBlock(t, kind, id){
+  const block = document.createElement('section');
+  block.className = 'block';
+  block.id = id;
+  const head = document.createElement('header');
+  const names = document.createElement('span');
+  names.className = 'names';
+  names.textContent = (kind === 'add' ? 'Added: ' : 'Removed: ') + t.name;
+  const key = document.createElement('span');
+  key.className = 'key';
+  key.textContent = t.rows.length + ' rows — ' + (kind === 'add' ? 'only on the After side' : 'only on the Before side');
+  head.append(names, key);
+  block.appendChild(head);
+  const wrap = document.createElement('div');
+  wrap.className = 'tablewrap';
+  const table = document.createElement('table');
+  table.className = 'diff';
+  const thead = document.createElement('thead');
+  const hr = document.createElement('tr');
+  const thN = document.createElement('th'); thN.className = 'rn'; thN.textContent = '#'; hr.appendChild(thN);
+  for (const h of t.header){
+    const th = document.createElement('th'); th.textContent = h;
+    th.classList.add(kind === 'add' ? 'addcol' : 'remcol');
+    hr.appendChild(th);
+  }
+  thead.appendChild(hr);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  const cls = kind === 'add' ? 'r-added' : 'r-removed';
+  const renderRows = (from, to) => {
+    const frag = document.createDocumentFragment();
+    for (let i = from; i < to; i++){
+      const tr = document.createElement('tr');
+      tr.className = cls;
+      tr.appendChild(cellTD('rn', String(i + 1 + (t.hasHeader ? 1 : 0))));
+      for (let j = 0; j < t.header.length; j++){
+        const v = t.rows[i][j] ?? '';
+        tr.appendChild(cellTD(kind === 'add' ? 'R' : 'L', v, v));
+      }
+      frag.appendChild(tr);
+    }
+    tbody.appendChild(frag);
+  };
+  renderRows(0, Math.min(200, t.rows.length));
+  if (t.rows.length > 200){
+    const tr = document.createElement('tr');
+    tr.className = 'more';
+    const td = document.createElement('td');
+    td.colSpan = t.header.length + 1;
+    td.textContent = 'Show all ' + t.rows.length + ' rows…';
+    tr.appendChild(td);
+    tr.addEventListener('click', () => { tr.remove(); renderRows(200, t.rows.length); });
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  block.appendChild(wrap);
+  return block;
+}
+
+function renderResults(){
+  const res = $('#results');
+  res.innerHTML = '';
+  if (!state.result) return;
+  const { diffs, leftOnly, rightOnly } = state.result;
+  if (!diffs.length && !leftOnly.length && !rightOnly.length){
+    res.innerHTML = '<div class="empty">No tables found in the uploaded files.</div>';
+    return;
+  }
+  diffs.forEach((pd, i) => res.appendChild(renderPairBlock(pd, i)));
+  rightOnly.forEach((t, i) => res.appendChild(renderUnmatchedBlock(t, 'add', 'un-r-' + i)));
+  leftOnly.forEach((t, i) => res.appendChild(renderUnmatchedBlock(t, 'rem', 'un-l-' + i)));
+}
+
+/* ---------------- boot ---------------- */
+if (!window.Papa || !window.XLSX){
+  const b = $('#banner');
+  b.hidden = false;
+  b.textContent = 'Could not load the parsing libraries (vendor/papaparse.min.js, vendor/xlsx.full.min.js). Make sure the vendor folder sits next to index.html.';
+}
+
+Object.assign(DC, {
+  canonCell, buildTable, parseFile, pairTables, pairScore, alignCols, detectKey,
+  seqDiffDP, seqAlignHashes, keyJoin, fuzzyPass, diffPair, buildItems, state, process, addFiles
+});
+})();
+</script>
+</body>
+</html>
