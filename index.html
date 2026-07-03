@@ -22,6 +22,8 @@
   .toolbar{display:flex;align-items:center;gap:14px;margin-left:auto;flex-wrap:wrap}
   .toolbar label{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
   .toolbar select{padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:#fff}
+  .toolbar input[type=search]{padding:4px 9px;border:1px solid var(--line);border-radius:6px;background:#fff;min-width:210px;font:inherit}
+  .toolbar input[type=search]:focus{outline:none;border-color:var(--accent)}
   .btn{border:1px solid var(--line);background:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font:inherit}
   .btn:hover{border-color:#c8ccd4;background:#fafafa}
   main{max-width:none;padding:14px 18px 60px}
@@ -111,6 +113,7 @@
     <div class="sub">Compare CSV / Excel files — before vs after</div>
   </div>
   <div class="toolbar">
+    <input type="search" id="search" placeholder="Filter rows… e.g. 182-71-1" autocomplete="off">
     <label><input type="checkbox" id="onlydiff" checked> Show only differences</label>
     <label>First row is header
       <select id="headermode">
@@ -534,7 +537,7 @@ function diffPair(lt, rt, score){
 }
 
 /* ---------------- state & pipeline ---------------- */
-const state = { leftFiles: [], rightFiles: [], headerMode: 'auto', onlyDiff: true, result: null, errors: [] };
+const state = { leftFiles: [], rightFiles: [], headerMode: 'auto', onlyDiff: true, search: '', result: null, errors: [] };
 let runToken = 0;
 let running = null;
 
@@ -636,8 +639,16 @@ for (const side of ['left', 'right']){
 }
 $('#onlydiff').addEventListener('change', e => { state.onlyDiff = e.target.checked; if (state.result) renderResults(); });
 $('#headermode').addEventListener('change', e => { state.headerMode = e.target.value; process(); });
+let searchTimer;
+$('#search').addEventListener('input', e => {
+  const v = e.target.value.trim().toLowerCase();
+  $('#onlydiff').disabled = !!v; // search reveals all matching rows, so the toggle is moot while active
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { state.search = v; if (state.result) renderResults(); }, 150);
+});
 $('#reset').addEventListener('click', () => {
   state.leftFiles = []; state.rightFiles = []; state.result = null;
+  state.search = ''; $('#search').value = ''; $('#onlydiff').disabled = false;
   process();
 });
 
@@ -731,7 +742,20 @@ function renderSummary(){
 /* ---------------- diff rendering ---------------- */
 const CHUNK = 800, CAP = 6000;
 
-function buildItems(entries, onlyDiff){
+// a row matches the search if the term appears in any cell on either side present
+function entryMatches(pd, e, term){
+  if (e.li != null && pd.left.rows[e.li].some(v => v.toLowerCase().includes(term))) return true;
+  if (e.ri != null && pd.right.rows[e.ri].some(v => v.toLowerCase().includes(term))) return true;
+  return false;
+}
+
+function buildItems(pd, onlyDiff, search){
+  const entries = pd.entries;
+  if (search){
+    const items = [];
+    for (let i = 0; i < entries.length; i++) if (entryMatches(pd, entries[i], search)) items.push({ row: i });
+    return items; // search reveals all matching rows, overriding onlyDiff — no gaps
+  }
   if (!onlyDiff) return entries.map((_, i) => ({ row: i }));
   const keep = new Array(entries.length).fill(false);
   entries.forEach((e, i) => {
@@ -813,6 +837,9 @@ function gapTR(pd, from, to){
 }
 
 function renderPairBlock(pd, i){
+  const term = state.search;
+  const nMatch = term ? pd.entries.filter(e => entryMatches(pd, e, term)).length : 0;
+  if (term && !nMatch) return null; // no rows in this pair contain the search text
   const block = document.createElement('section');
   block.className = 'block pair-block';
   block.id = 'pair-' + i;
@@ -831,12 +858,13 @@ function renderPairBlock(pd, i){
   const cnt = document.createElement('span');
   cnt.className = 'cnt';
   const nDiff = pd.entries.filter(e => e.type !== 'same').length;
-  cnt.textContent = nDiff ? nDiff + ' differing rows' : (pd.identical ? 'identical' : 'column changes only');
+  cnt.textContent = term ? nMatch + ' row' + (nMatch === 1 ? '' : 's') + ' match'
+    : nDiff ? nDiff + ' differing rows' : (pd.identical ? 'identical' : 'column changes only');
   nav.appendChild(cnt);
   head.appendChild(nav);
   block.appendChild(head);
 
-  if (pd.identical){
+  if (pd.identical && !term){
     const note = document.createElement('div');
     note.className = 'note';
     note.textContent = 'Tables are identical (' + pd.right.rows.length + ' rows, ' + pd.rightCols.length + ' columns).';
@@ -890,7 +918,7 @@ function renderPairBlock(pd, i){
     nav.prepend(mk('↑', -1), mk('↓', +1));
   }
 
-  const items = buildItems(pd.entries, state.onlyDiff);
+  const items = buildItems(pd, state.onlyDiff, term);
   let cursor = 0, rendered = 0;
   const pump = () => {
     const frag = document.createDocumentFragment();
@@ -921,6 +949,11 @@ function renderPairBlock(pd, i){
 }
 
 function renderUnmatchedBlock(t, kind, id){
+  const term = state.search;
+  const idxs = term
+    ? t.rows.map((r, i) => i).filter(i => t.rows[i].some(v => (v ?? '').toLowerCase().includes(term)))
+    : t.rows.map((r, i) => i);
+  if (term && !idxs.length) return null; // nothing in this file matches the search
   const block = document.createElement('section');
   block.className = 'block';
   block.id = id;
@@ -930,7 +963,8 @@ function renderUnmatchedBlock(t, kind, id){
   names.textContent = (kind === 'add' ? 'Added: ' : 'Removed: ') + t.name;
   const key = document.createElement('span');
   key.className = 'key';
-  key.textContent = t.rows.length + ' rows — ' + (kind === 'add' ? 'only on the After side' : 'only on the Before side');
+  key.textContent = (term ? idxs.length + ' of ' + t.rows.length + ' rows match — ' : t.rows.length + ' rows — ')
+    + (kind === 'add' ? 'only on the After side' : 'only on the Before side');
   head.append(names, key);
   block.appendChild(head);
   const wrap = document.createElement('div');
@@ -951,7 +985,8 @@ function renderUnmatchedBlock(t, kind, id){
   const cls = kind === 'add' ? 'r-added' : 'r-removed';
   const renderRows = (from, to) => {
     const frag = document.createDocumentFragment();
-    for (let i = from; i < to; i++){
+    for (let k = from; k < to; k++){
+      const i = idxs[k];
       const tr = document.createElement('tr');
       tr.className = cls;
       tr.appendChild(cellTD('rn', String(i + 1 + (t.hasHeader ? 1 : 0))));
@@ -963,15 +998,15 @@ function renderUnmatchedBlock(t, kind, id){
     }
     tbody.appendChild(frag);
   };
-  renderRows(0, Math.min(200, t.rows.length));
-  if (t.rows.length > 200){
+  renderRows(0, Math.min(200, idxs.length));
+  if (idxs.length > 200){
     const tr = document.createElement('tr');
     tr.className = 'more';
     const td = document.createElement('td');
     td.colSpan = t.header.length + 1;
-    td.textContent = 'Show all ' + t.rows.length + ' rows…';
+    td.textContent = 'Show all ' + idxs.length + ' rows…';
     tr.appendChild(td);
-    tr.addEventListener('click', () => { tr.remove(); renderRows(200, t.rows.length); });
+    tr.addEventListener('click', () => { tr.remove(); renderRows(200, idxs.length); });
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
@@ -989,9 +1024,16 @@ function renderResults(){
     res.innerHTML = '<div class="empty">No tables found in the uploaded files.</div>';
     return;
   }
-  diffs.forEach((pd, i) => res.appendChild(renderPairBlock(pd, i)));
-  rightOnly.forEach((t, i) => res.appendChild(renderUnmatchedBlock(t, 'add', 'un-r-' + i)));
-  leftOnly.forEach((t, i) => res.appendChild(renderUnmatchedBlock(t, 'rem', 'un-l-' + i)));
+  const add = b => { if (b) res.appendChild(b); };
+  diffs.forEach((pd, i) => add(renderPairBlock(pd, i)));
+  rightOnly.forEach((t, i) => add(renderUnmatchedBlock(t, 'add', 'un-r-' + i)));
+  leftOnly.forEach((t, i) => add(renderUnmatchedBlock(t, 'rem', 'un-l-' + i)));
+  if (state.search && !res.children.length){
+    const d = document.createElement('div');
+    d.className = 'empty';
+    d.textContent = 'No rows contain "' + state.search + '".';
+    res.appendChild(d);
+  }
 }
 
 /* ---------------- boot ---------------- */
@@ -1003,7 +1045,7 @@ if (!window.Papa || !window.XLSX){
 
 Object.assign(DC, {
   canonCell, buildTable, parseFile, pairTables, pairScore, alignCols, detectKey,
-  seqDiffDP, seqAlignHashes, keyJoin, fuzzyPass, diffPair, buildItems, state, process, addFiles
+  seqDiffDP, seqAlignHashes, keyJoin, fuzzyPass, diffPair, buildItems, entryMatches, state, process, addFiles
 });
 })();
 </script>
