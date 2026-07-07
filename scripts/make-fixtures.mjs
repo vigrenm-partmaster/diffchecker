@@ -100,4 +100,38 @@ saveWb(wb([
   ['P-4', 'A', 'draft'],      // added
 ]), join(out, 'wb_after.xlsx'));
 
+// --- pair E: composite key + reordering + a VOLATILE near-unique column ---
+// Identity key is site+part+rev. `ts` is nearly unique and would form a passing
+// 2-col key (part+ts), but it changes on ~30% of rows, so a naive "prefer fewer
+// columns" detector mis-picks it and mis-aligns reordered rows. The fix must pick
+// site+part+rev (overlap 1.0) over part+ts (overlap < 1).
+const eBefore = [
+  ['site', 'part', 'rev', 'ts', 'val'],
+  ['111', 'P-100', 'A', '2024-01-01T10:00:00Z', '10'],
+  ['111', 'P-100', 'B', '2024-01-02T10:00:00Z', '11'],
+  ['241', 'P-100', 'A', '2024-01-03T10:00:00Z', '12'],
+  ['241', 'P-200', 'A', '2024-02-01T10:00:00Z', '20'],
+  ['241', 'P-200', 'B', '2024-02-02T10:00:00Z', '21'],
+  ['271', 'P-200', 'A', '2024-02-03T10:00:00Z', '22'],
+  ['271', 'P-300', 'A', '2024-03-01T10:00:00Z', '30'],
+  ['271', 'P-300', 'B', '2024-03-02T10:00:00Z', '31'],
+  ['111', 'P-900', 'A', '2024-09-01T10:00:00Z', '90'], // removed in after
+];
+// after: same identities, REORDERED, ts changed on several rows (re-transfer),
+// one val changed, P-900 removed, P-400 added.
+const eAfter = [
+  ['site', 'part', 'rev', 'ts', 'val'],
+  ['271', 'P-300', 'A', '2024-03-01T10:00:00Z', '30'],
+  ['241', 'P-200', 'A', '2026-06-10T19:40:00Z', '20'], // ts changed
+  ['111', 'P-100', 'A', '2024-01-01T10:00:00Z', '10'],
+  ['241', 'P-100', 'A', '2026-06-10T19:40:00Z', '12'], // ts changed
+  ['271', 'P-200', 'A', '2026-06-10T19:40:00Z', '22'], // ts changed
+  ['111', 'P-100', 'B', '2024-01-02T10:00:00Z', '99'], // val changed 11->99
+  ['241', 'P-200', 'B', '2024-02-02T10:00:00Z', '21'],
+  ['271', 'P-300', 'B', '2024-03-02T10:00:00Z', '31'],
+  ['241', 'P-400', 'A', '2026-06-10T19:40:00Z', '40'], // added
+];
+writeFileSync(join(out, 'e_before.csv'), BOM + csv(eBefore));
+writeFileSync(join(out, 'e_after.csv'), BOM + csv(eAfter));
+
 console.log('fixtures written to', out);

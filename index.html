@@ -353,28 +353,32 @@ function detectKey(lt, rt, matched){
     return { cols, overlap, kL, kR };
   };
   const leftmost = cols => cols.reduce((s, c) => s + c.leftIdx, 0);
-  const pick = cands => {
-    let best = null;
-    for (const cols of cands){
-      const r = evalCand(cols);
-      if (r && (!best || r.overlap > best.overlap + 1e-9 ||
-        (Math.abs(r.overlap - best.overlap) <= 1e-9 && leftmost(r.cols) < leftmost(best.cols)))) best = r;
-    }
-    return best;
+  // Rank ALL candidate sizes together and pick the globally best key by:
+  //   1. highest cross-side overlap (identity stability across the two files)
+  //   2. then fewest columns  3. then leftmost columns.
+  // Overlap-first matters: a volatile column (e.g. a timestamp that changed) lowers
+  // overlap, so a perfect 3-col key beats a mediocre 2-col key that includes it —
+  // adding a *stable* identity column keeps overlap at 1.0 while raising uniqueness.
+  const better = (r, best) => {
+    if (!best) return true;
+    if (r.overlap > best.overlap + 1e-9) return true;
+    if (r.overlap < best.overlap - 1e-9) return false;
+    if (r.cols.length !== best.cols.length) return r.cols.length < best.cols.length;
+    return leftmost(r.cols) < leftmost(best.cols);
   };
-  const singles = matched.slice(0, 20).map(c => [c]);
-  let best = pick(singles);
-  if (best) return best;
+  const candidates = [];
+  matched.slice(0, 20).forEach(c => candidates.push([c]));
   const pool = matched.slice(0, 10);
-  const pairsC = [];
-  for (let i = 0; i < pool.length; i++) for (let j = i + 1; j < pool.length; j++) pairsC.push([pool[i], pool[j]]);
-  best = pick(pairsC);
-  if (best) return best;
+  for (let i = 0; i < pool.length; i++) for (let j = i + 1; j < pool.length; j++) candidates.push([pool[i], pool[j]]);
   const pool3 = matched.slice(0, 12);
-  const triples = [];
   for (let i = 0; i < pool3.length; i++) for (let j = i + 1; j < pool3.length; j++) for (let k = j + 1; k < pool3.length; k++)
-    triples.push([pool3[i], pool3[j], pool3[k]]);
-  return pick(triples);
+    candidates.push([pool3[i], pool3[j], pool3[k]]);
+  let best = null;
+  for (const cols of candidates){
+    const r = evalCand(cols);
+    if (r && better(r, best)) best = r;
+  }
+  return best;
 }
 
 /* ---------------- row alignment ---------------- */
