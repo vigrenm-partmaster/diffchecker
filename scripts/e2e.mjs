@@ -59,17 +59,28 @@ async function typeSearch(page, term){
 const leakCount = (page, term) => page.$$eval('#results .block tbody tr:not(.more)',
   (trs, t) => trs.filter(tr => !tr.textContent.toLowerCase().includes(t)).length, term);
 const shownRows = page => page.$$eval('#results .block tbody tr:not(.more)', trs => trs.length);
+// per-pair-block diff counts, located by a fragment of the block's header names
+const blockStats = (page, frag) => page.evaluate(f => {
+  const b = [...document.querySelectorAll('#results .pair-block')].find(bl => (bl.querySelector('.names')?.textContent || '').includes(f));
+  if (!b) return null;
+  return {
+    added: b.querySelectorAll('tr.r-added').length,
+    removed: b.querySelectorAll('tr.r-removed').length,
+    changed: b.querySelectorAll('tr.r-changed').length,
+    key: b.querySelector('.key')?.textContent || ''
+  };
+}, frag);
 
 async function testSynthetic(browser){
   console.log('\n== synthetic fixtures ==');
   const fx = f => join(root, 'fixtures', f);
   const page = await freshPage(browser);
-  await page.setInputFiles('#input-left', [fx('a_before.csv'), fx('b_before.csv'), fx('c_swapped_after.csv'), fx('wb_before.xlsx')]);
-  await page.setInputFiles('#input-right', [fx('a_after.csv'), fx('b_after.csv'), fx('c_swapped_before.csv'), fx('wb_after.xlsx')]);
-  await waitDone(page, 4, 4);
+  await page.setInputFiles('#input-left', [fx('a_before.csv'), fx('b_before.csv'), fx('c_swapped_after.csv'), fx('wb_before.xlsx'), fx('e_before.csv')]);
+  await page.setInputFiles('#input-right', [fx('a_after.csv'), fx('b_after.csv'), fx('c_swapped_before.csv'), fx('wb_after.xlsx'), fx('e_after.csv')]);
+  await waitDone(page, 5, 5);
 
   const cards = await cardTexts(page);
-  check(cards.length === 5, '5 matched pairs (got ' + cards.length + ')');
+  check(cards.length === 6, '6 matched pairs (got ' + cards.length + ')');
   check((await page.$$('#summary .unmatched-card')).length === 0, 'no unmatched tables');
 
   const cardFor = frag => cards.find(t => t.includes(frag)) || '';
@@ -87,10 +98,18 @@ async function testSynthetic(browser){
   const wbData = cards.find(t => t.includes('Data')) || '';
   check(wbData.includes('+1 rows') && wbData.includes('~1 rows'), 'wb Data sheet stats: ' + wbData);
 
-  check(await page.$$eval('tr.r-added', e => e.length) === 3, '3 added rows highlighted');
-  check(await page.$$eval('tr.r-removed', e => e.length) === 1, '1 removed row highlighted');
-  check(await page.$$eval('tr.r-changed', e => e.length) === 4, '4 changed rows highlighted');
-  check(await page.$$eval('td.chg', e => e.length) === 4, '4 changed cells (blue, right side)');
+  // pair E: composite key must beat the volatile near-unique `ts` column
+  const e = cardFor('e_before.csv');
+  check(e.includes('key: site + part + rev'), 'pair E picks composite key over volatile column: ' + e);
+  const es = await blockStats(page, 'e_before.csv');
+  check(es && es.added === 1 && es.removed === 1,
+    'pair E: reordered identical rows join — only the real add/remove show (1/1): ' + JSON.stringify(es));
+  check(es && es.changed === 4, 'pair E: 4 changed rows (3 ts changes + 1 val change): ' + JSON.stringify(es));
+
+  check(await page.$$eval('tr.r-added', e => e.length) === 4, '4 added rows highlighted (across pairs)');
+  check(await page.$$eval('tr.r-removed', e => e.length) === 2, '2 removed rows highlighted (across pairs)');
+  check(await page.$$eval('tr.r-changed', e => e.length) === 8, '8 changed rows highlighted (across pairs)');
+  check(await page.$$eval('td.chg', e => e.length) === 8, '8 changed cells (blue, right side)');
   check(await page.$$eval('td.spacer', e => e.length) > 0, 'spacer cells keep rows horizontally aligned');
 
   // alignment invariant: every row entry occupies one TR spanning both halves
@@ -128,7 +147,7 @@ async function testSynthetic(browser){
   check((await page.$$('#results .block')).length === 0 && /No rows contain/.test(await page.$eval('#results', e => e.textContent)),
     'search with no matches shows the empty message');
   await typeSearch(page, ''); // clear
-  check((await page.$$('#results .pair-block')).length === 5, 'clearing search restores all 5 pair blocks');
+  check((await page.$$('#results .pair-block')).length === 6, 'clearing search restores all 6 pair blocks');
 
   await page.screenshot({ path: join(shotsDir, 'e2e-synthetic.png'), fullPage: true });
   await page.close();
